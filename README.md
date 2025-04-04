@@ -1,4 +1,4 @@
-**Gesture Control System**
+## Gesture Control System
 
 This project is a **Gesture Control System** that allows users to control various system functionalities such as volume, brightness, media playback, and mouse movements using hand gestures. It uses **OpenCV**, **Mediapipe**, and other libraries to detect and process hand gestures in real-time.
 

@@ -61,6 +61,10 @@ class GestureController:
         # Hand presence tracking
         self.hands_present = False
 
+        # Gesture alert tracking
+        self.gesture_alert = None  # To store the current gesture alert
+        self.gesture_alert_time = None  # To track when the alert was set
+
     def toggle_auto_brightness(self):
         """Toggle the auto-brightness state."""
         self.auto_brightness_enabled = not self.auto_brightness_enabled
@@ -210,6 +214,16 @@ class GestureController:
                 return True
         return False
 
+    def display_gesture_alert(self, frame):
+        """Display the current gesture alert on the right side of the screen."""
+        if self.gesture_alert and time.time() - self.gesture_alert_time < 2:  # Show alert for 2 seconds
+            text_size = cv2.getTextSize(self.gesture_alert, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
+            text_x = frame.shape[1] - text_size[0] - 10  # Position 10px from the right edge
+            text_y = 50  # Fixed vertical position
+            cv2.putText(frame, self.gesture_alert, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        elif self.gesture_alert:
+            self.gesture_alert = None  # Clear the alert after 2 seconds
+
     def control_media(self, hand):
         if not hand or time.time() - self.media_cooldown < 1:
             return None
@@ -246,6 +260,8 @@ class GestureController:
                 action = "NEXT TRACK"
             self.next_triggered = True
             self.media_cooldown = time.time()
+            self.gesture_alert = action  # Set gesture alert
+            self.gesture_alert_time = time.time()
             return action
         elif not next_gesture:
             self.next_triggered = False
@@ -259,6 +275,8 @@ class GestureController:
                 action = "PREVIOUS TRACK"
             self.prev_triggered = True
             self.media_cooldown = time.time()
+            self.gesture_alert = action  # Set gesture alert
+            self.gesture_alert_time = time.time()
             return action
         elif not prev_gesture:
             self.prev_triggered = False
@@ -267,11 +285,15 @@ class GestureController:
             self.send_media_key(VK_MEDIA_PLAY_PAUSE)
             self.last_media_state = 'play'
             self.media_cooldown = time.time()
+            self.gesture_alert = "PLAY"  # Set gesture alert
+            self.gesture_alert_time = time.time()
             return "PLAY"
         elif pause_gesture and self.last_media_state != 'pause':
             self.send_media_key(VK_MEDIA_PLAY_PAUSE)
             self.last_media_state = 'pause'
             self.media_cooldown = time.time()
+            self.gesture_alert = "PAUSE"  # Set gesture alert
+            self.gesture_alert_time = time.time()
             return "PAUSE"
 
         return None
@@ -299,6 +321,8 @@ class GestureController:
                 self.vol_history.pop(0)
             avg_vol = np.mean(self.vol_history)
             self.volume.SetMasterVolumeLevel(avg_vol, None)
+            self.gesture_alert = f"Volume: {int(np.interp(avg_vol, [self.vol_min, self.vol_max], [10, 100]))}%"  # Set gesture alert
+            self.gesture_alert_time = time.time()
             return int(np.interp(avg_vol, [self.vol_min, self.vol_max], [10, 100]))
         except Exception as e:
             print(f"Failed to control volume: {e}")
@@ -360,6 +384,8 @@ class GestureController:
         if index_up and middle_up and not ring_up and pinky_down and not self.left_click_triggered:
             pyautogui.click(button='left')
             self.left_click_triggered = True
+            self.gesture_alert = "LEFT CLICK"  # Set gesture alert
+            self.gesture_alert_time = time.time()
             return "LEFT"
         elif not (index_up and middle_up and not ring_up and pinky_down):
             self.left_click_triggered = False
@@ -368,6 +394,8 @@ class GestureController:
         if index_up and middle_up and ring_up and pinky_down and not self.right_click_triggered:
             pyautogui.click(button='right')
             self.right_click_triggered = True
+            self.gesture_alert = "RIGHT CLICK"  # Set gesture alert
+            self.gesture_alert_time = time.time()
             return "RIGHT"
         elif not (index_up and middle_up and ring_up and pinky_down):
             self.right_click_triggered = False
@@ -431,6 +459,9 @@ class GestureController:
 
                 # Create overlay with system details
                 frame = self.create_overlay(frame, sys_info, auto_brightness_message)
+
+                # Display the gesture alert at the top of the frame
+                self.display_gesture_alert(frame)
 
                 # Add exit instruction at the bottom of the frame
                 exit_text = "Press 'q' to quit"

@@ -1,4 +1,4 @@
-**Gesture Control System**
+** Gesture Control System**
 
 This project is a gesture control system that uses a webcam to detect hand gestures and perform various actions such as controlling media, adjusting brightness, scrolling, and interacting with applications like Spotify, YouTube, and WhatsApp.
 
@@ -40,17 +40,15 @@ pip install opencv-python mediapipe numpy pycaw pyautogui psutil screen-brightne
    ```bash
    python run.py
    ```
-3. Use the following gestures:
-   - **Pinky Gesture**: Open Spotify, YouTube, or WhatsApp.
-   - **Mouse Control**: Move the mouse with the index finger and perform left/right clicks.
-   - **Media Control**: Use gestures for play, pause, next, and previous track.
-   - **Brightness Control**: Auto-adjust brightness or toggle it manually with the `b` key.
-   - **Scrolling**: Use the index finger to scroll up and the ring finger to scroll down.
-   - **Exit Gesture**: Show both palms with all fingers up to exit the application.
 
-## Notes
-- Ensure the `settings_icon.png` file is placed in the `icons` folder.
-- The application uses the `Roboto-Regular.ttf` font for better text clarity. Place the font file in the project directory.
+## Usage
+- **Press 'q'**: Quit the application.
+- **Press 'b'**: Toggle auto-brightness mode.
 
-## License
-This project is licensed under the MIT License.
+## Troubleshooting
+- Ensure your webcam is connected and functioning properly.
+- If you encounter issues with library installation, ensure you are using Python 3.7 or later.
+- For Windows compatibility, ensure all required libraries are installed and up-to-date.
+
+## Project Holder
+This project is developed and maintained by **Bhanu Prakash**.

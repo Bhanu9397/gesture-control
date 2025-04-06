@@ -1,44 +1,42 @@
-## Gesture Control System
+** Gesture Control System**
 
-This project is a **Gesture Control System** that allows users to control various system functionalities such as volume, brightness, media playback, and mouse movements using hand gestures. It uses **OpenCV**, **Mediapipe**, and other libraries to detect and process hand gestures in real-time.
+This project is a gesture control system that uses a webcam to detect hand gestures and perform various actions such as controlling media, adjusting brightness, scrolling, and interacting with applications like Spotify, YouTube, and WhatsApp.
 
 ## Features
-- **Volume Control**: Adjust system volume using hand gestures.
-- **Brightness Control**: Automatically adjust screen brightness or toggle manual control.
-- **Media Control**: Play, pause, and navigate media tracks.
-- **Mouse Control**: Move the mouse pointer and perform left/right clicks.
-- **Battery and System Info**: Display battery percentage, CPU usage, and memory usage in a circular overlay.
-- **Dynamic Battery Ring**: Changes color based on battery percentage.
-- **Hand Presence Detection**: Displays a message when no hands are detected.
-- **Logging**: Logs system events and errors for debugging.
+- **Media Control**: Play, pause, next track, and previous track for both web and installed apps.
+- **Brightness Adjustment**: Auto-brightness adjustment based on ambient light.
+- **Mouse Control**: Move the mouse pointer smoothly and perform left/right clicks using gestures.
+- **Scrolling**: Scroll up and down using index and ring finger gestures.
+- **Application Control**: Open Spotify, YouTube, and WhatsApp using gestures.
+- **Customizable UI**: Circular overlay with system information (CPU, Memory, FPS).
+- **Settings Menu**: Change pinky gesture actions via a settings menu.
+- **Exit Gesture**: Exit the application by showing both palms with all fingers up.
 
 ## Requirements
-Install the required Python libraries using the following command:
+- Python 3.7 or higher
+- Webcam
+
+## Installation
+
+### Using `requirements.txt`
+Run the following command to install all dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### Required Libraries
-The following libraries are required and are listed in the `requirements.txt` file:
-- `opencv-python`
-- `mediapipe`
-- `numpy`
-- `pycaw`
-- `pyautogui`
-- `psutil`
-- `screen-brightness-control`
+### Without `requirements.txt`
+If `requirements.txt` is not available, install the required libraries manually:
+```bash
+pip install opencv-python mediapipe numpy pycaw pyautogui psutil screen-brightness-control comtypes
+```
 
-## How to Run
+## Usage
 1. Clone the repository:
    ```bash
-   git clone https://github.com/Bhanu9397/gesture-control.git
+   git clone <repository-url>
    cd gesture-control
    ```
-2. Install the required libraries:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Run the application:
+2. Run the application:
    ```bash
    python run.py
    ```

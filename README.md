@@ -1,4 +1,4 @@
-** Gesture Control System**
+## Gesture Control System
 
 This project is a gesture control system that uses a webcam to detect hand gestures and perform various actions such as controlling media, adjusting brightness, scrolling, and interacting with applications like Spotify, YouTube, and WhatsApp.
 

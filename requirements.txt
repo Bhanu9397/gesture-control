@@ -5,3 +5,5 @@ pycaw
 pyautogui
 psutil
 screen-brightness-control
+comtypes
+Pillow

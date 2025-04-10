@@ -12,12 +12,13 @@ import psutil
 import screen_brightness_control as sbc
 import logging  # Added for logging system events
 import os  # Added for checking file paths
-from PIL import ImageFont, ImageDraw, Image  # Added for custom font rendering
+import threading
+import queue
 
 # Configuration
 VOLUME_RANGE = [10, 100]
-MOUSE_SMOOTHING = 5
-OVERLAY_ALPHA = 0.7  # Increased for better visibility
+MOUSE_SMOOTHING = 10
+OVERLAY_ALPHA = 0.5  # Reduced for less obstruction
 BRIGHTNESS_RANGE = [10, 100]
 
 # Media key constants
@@ -78,9 +79,59 @@ class GestureController:
         self.fullscreen_triggered = False
         self.fullscreen_state = False
 
+        # Threading and queue for frame processing
+        self.frame_queue = queue.Queue(maxsize=1)
+        self.result_queue = queue.Queue(maxsize=1)
+        self.running = True
+        self.thread = threading.Thread(target=self.process_hands_thread)
+        self.thread.daemon = True
+        self.thread.start()
+
+        # Face mask feature
+        self.face_mesh = mp.solutions.face_mesh.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        self.face_mask_enabled = False
+
     def toggle_auto_brightness(self):
         """Toggle the auto-brightness state."""
         self.auto_brightness_enabled = not self.auto_brightness_enabled
+
+    def toggle_face_mask(self):
+        """Toggle the face mask feature."""
+        self.face_mask_enabled = not self.face_mask_enabled
+
+    def apply_face_mask(self, frame):
+        """Draw a custom smiling face mask on the user's face."""
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.face_mesh.process(frame_rgb)
+
+        if results.multi_face_landmarks:
+            for face_landmarks in results.multi_face_landmarks:
+                # Get the bounding box of the face
+                x_coords = [int(landmark.x * frame.shape[1]) for landmark in face_landmarks.landmark]
+                y_coords = [int(landmark.y * frame.shape[0]) for landmark in face_landmarks.landmark]
+                x_min, x_max = min(x_coords), max(x_coords)
+                y_min, y_max = min(y_coords), max(y_coords)
+
+                # Calculate the center and radius of the face circle
+                center_x, center_y = (x_min + x_max) // 2, (y_min + y_max) // 2
+                radius = (x_max - x_min) // 2
+
+                # Draw the face circle (yellow)
+                cv2.circle(frame, (center_x, center_y), radius, (0, 255, 255), -1)
+
+                # Draw the eyes (black circles)
+                eye_radius = radius // 8
+                eye_offset_x = radius // 3
+                eye_offset_y = radius // 4
+                cv2.circle(frame, (center_x - eye_offset_x, center_y - eye_offset_y), eye_radius, (0, 0, 0), -1)
+                cv2.circle(frame, (center_x + eye_offset_x, center_y - eye_offset_y), eye_radius, (0, 0, 0), -1)
+
+                # Draw the smile (arc)
+                smile_radius = radius // 2
+                smile_thickness = 2
+                cv2.ellipse(frame, (center_x, center_y + radius // 4), (smile_radius, smile_radius // 2), 0, 20, 160, (0, 0, 0), smile_thickness)
+
+        return frame
 
     def get_system_info(self):
         battery = psutil.sensors_battery()
@@ -110,27 +161,51 @@ class GestureController:
             print(f"Failed to set brightness: {e}")
             return "N/A"
 
+    def process_hands_thread(self):
+        while self.running:
+            try:
+                frame = self.frame_queue.get(timeout=1)
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = self.hands.process(frame_rgb)
+                self.result_queue.put((results, frame))
+            except queue.Empty:
+                continue
+
     def process_hands(self, frame):
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(frame_rgb)
-        hands = {'left': {'landmarks': None}, 'right': {'landmarks': None}}
-        
-        if results.multi_hand_landmarks:
-            self.hands_present = True
-            for i, hand_landmarks in enumerate(results.multi_hand_landmarks):
-                hand_type = results.multi_handedness[i].classification[0].label.lower()
-                landmarks = [(int(lm.x * frame.shape[1]), int(lm.y * frame.shape[0])) for lm in hand_landmarks.landmark]
-                hands[hand_type]['landmarks'] = landmarks
+        """Ensure hand gesture overlays are drawn on top of the emoji mask."""
+        try:
+            self.frame_queue.put(frame, block=False)
+        except queue.Full:
+            pass
+        try:
+            results, frame = self.result_queue.get_nowait()
+            hands = {'left': {'landmarks': None}, 'right': {'landmarks': None}}
+            if results.multi_hand_landmarks:
+                self.hands_present = True
+                for i, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                    hand_type = results.multi_handedness[i].classification[0].label.lower()
+                    landmarks = [(int(lm.x * frame.shape[1]), int(lm.y * frame.shape[0])) for lm in hand_landmarks.landmark]
+                    hands[hand_type]['landmarks'] = landmarks
+                    self.mp_draw.draw_landmarks(
+                        frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                        self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=2),  # White color
+                        self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=2)   # White color
+                    )
+                    # Restore 2 and 5 connection
+                    cv2.line(frame, (int(hand_landmarks.landmark[2].x * frame.shape[1]), int(hand_landmarks.landmark[2].y * frame.shape[0])),
+                             (int(hand_landmarks.landmark[5].x * frame.shape[1]), int(hand_landmarks.landmark[5].y * frame.shape[0])), (255, 255, 255), 2)  # White color
+                    # Add red dots at the same positions as white dots
+                    for landmark in hand_landmarks.landmark:
+                        x, y = int(landmark.x * frame.shape[1]), int(landmark.y * frame.shape[0])
+                        cv2.circle(frame, (x, y), 3, (0, 0, 255), -1)  # Red dot
+            else:
+                self.hands_present = False
 
-                self.mp_draw.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
-
-                x1, y1 = landmarks[2]
-                x2, y2 = landmarks[5]
-                cv2.line(frame, (x1, y1), (x2, y2), (255, 255, 255), 2)
-        else:
-            self.hands_present = False
-
-        return hands, frame
+            if self.face_mask_enabled:
+                frame = self.apply_face_mask(frame)
+            return hands, frame
+        except queue.Empty:
+            return {'left': {'landmarks': None}, 'right': {'landmarks': None}}, frame
 
     def create_overlay(self, frame, sys_info, auto_brightness_message=None):
         """Enhanced circular overlay with modern design"""
@@ -201,15 +276,15 @@ class GestureController:
     def show_settings_menu(self, frame):
         """Modern settings menu with better visuals"""
         if self.settings_menu_open:
-            menu_x, menu_y = 50, 140
+            menu_x, menu_y = 50, 180  # Moved down to avoid gesture area
             menu_w, menu_h = 180, 100
-            # Semi-transparent background with shadow
             overlay = frame.copy()
             cv2.rectangle(overlay, (menu_x-2, menu_y-2), (menu_x + menu_w+2, menu_y + menu_h+2), (50, 50, 50), -1)
             cv2.rectangle(overlay, (menu_x, menu_y), (menu_x + menu_w, menu_y + menu_h), (40, 40, 40), -1)
             frame[:] = cv2.addWeighted(overlay, 0.9, frame, 0.1, 0)
 
             actions = ["Spotify", "WhatsApp", "YouTube"]
+            self.settings_buttons = []  # Reset buttons every time
             for i, action in enumerate(actions):
                 button_x, button_y = menu_x + 10, menu_y + 10 + i * 30
                 button_w, button_h = menu_w - 20, 25
@@ -221,39 +296,56 @@ class GestureController:
                 text_x = button_x + 10
                 text_y = button_y + 18
                 cv2.putText(frame, action, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-
-                if not hasattr(self, 'settings_buttons'):
-                    self.settings_buttons = []
-                if len(self.settings_buttons) < len(actions):
-                    self.settings_buttons.append((button_x, button_y, button_w, button_h, action))
+                
+                self.settings_buttons.append((button_x, button_y, button_w, button_h, action))
 
     def open_spotify(self, hand):
         """Silently open apps or web versions with pinky gesture"""
-        if not hand or len(hand) < 20:
+        if not hand or len(hand) < 21:
             self.spotify_opened = False
             return
 
-        pinky_up = hand[20][1] < hand[17][1]
-        other_fingers_closed = all(hand[i][1] > hand[i-3][1] for i in [8, 12, 16])
+        pinky_tip = hand[20]
+        pinky_mcp = hand[17]
+        index_tip = hand[8]
+        middle_tip = hand[12]
+        ring_tip = hand[16]
+        index_mcp = hand[5]
+        middle_mcp = hand[9]
+        ring_mcp = hand[13]
+
+        pinky_up = pinky_tip[1] < pinky_mcp[1] - 20
+        other_fingers_closed = all(tip[1] > mcp[1] + 10 for tip, mcp in [
+            (index_tip, index_mcp),
+            (middle_tip, middle_mcp),
+            (ring_tip, ring_mcp)
+        ])
+
+        logging.info(f"Pinky gesture: up={pinky_up}, others_closed={other_fingers_closed}, action={self.pinky_gesture_action}")
 
         if pinky_up and other_fingers_closed and not self.spotify_opened:
             app_commands = {
                 "Spotify": ("shell:AppsFolder\\SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", "https://open.spotify.com"),
                 "WhatsApp": ("shell:AppsFolder\\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App", "https://web.whatsapp.com"),
-                "YouTube": ("shell:AppsFolder\\GoogleInc.YouTube_yourappid!App", "https://www.youtube.com")
+                "YouTube": ("", "https://www.youtube.com")
             }
 
-            app_cmd, web_url = app_commands[self.pinky_gesture_action]
+            app_cmd, web_url = app_commands.get(self.pinky_gesture_action, app_commands["Spotify"])
             try:
-                subprocess.Popen(f"start {app_cmd}", shell=True)
-                self.spotify_opened = self.pinky_gesture_action.lower()
-            except:
+                if app_cmd:
+                    logging.info(f"Opening {self.pinky_gesture_action} with command: {app_cmd}")
+                    subprocess.Popen(f"start {app_cmd}", shell=True)
+                    self.spotify_opened = self.pinky_gesture_action.lower()
+                else:
+                    raise Exception("No app command provided")
+            except Exception as e:
+                logging.info(f"Opening web version of {self.pinky_gesture_action}: {web_url}")
                 subprocess.Popen(f"start {web_url}", shell=True)
                 self.spotify_opened = f"{self.pinky_gesture_action.lower()}_web"
-
-        elif not pinky_up and self.spotify_opened:
-            # Do not close the app or page when the pinky finger is closed
-            pass
+            self.gesture_alert = f"Opened {self.pinky_gesture_action}"
+            self.gesture_alert_time = time.time()
+        elif not pinky_up:
+            self.spotify_opened = False
 
     def display_gesture_alert(self, frame):
         """Improved gesture alert display"""
@@ -267,6 +359,23 @@ class GestureController:
             cv2.putText(frame, self.gesture_alert, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
         elif self.gesture_alert:
             self.gesture_alert = None
+
+    def mouse_callback(self, event, x, y, flags, param):
+        """Handle mouse events for settings menu interaction"""
+        if event == cv2.EVENT_LBUTTONDOWN:
+            logging.info(f"Mouse clicked at ({x}, {y})")
+            if self.settings_menu_open and hasattr(self, 'settings_buttons'):
+                for button_x, button_y, button_w, button_h, action in self.settings_buttons:
+                    if button_x <= x <= button_x + button_w and button_y <= y <= button_y + button_h:
+                        self.pinky_gesture_action = action
+                        logging.info(f"Pinky gesture action set to: {action}")
+                        self.spotify_opened = False
+                        return
+            if self.settings_button_coords:
+                button_x, button_y, button_w, button_h = self.settings_button_coords
+                if button_x <= x <= button_x + button_w and button_y <= y <= button_y + button_h:
+                    self.settings_menu_open = not self.settings_menu_open
+                    logging.info(f"Settings menu toggled to: {self.settings_menu_open}")
 
     def control_volume(self, hand, frame):
         """Control system volume using thumb and index finger distance"""
@@ -512,18 +621,6 @@ class GestureController:
             logging.error(f"Scroll control error: {e}")
             return None
 
-    def mouse_callback(self, event, x, y, flags, param):
-        """Handle mouse events for settings menu interaction"""
-        if event == cv2.EVENT_LBUTTONDOWN:
-            if self.settings_menu_open and hasattr(self, 'settings_buttons'):
-                for button_x, button_y, button_w, button_h, action in self.settings_buttons:
-                    if button_x <= x <= button_x + button_w and button_y <= y <= button_y + button_h:
-                        self.pinky_gesture_action = action
-            if self.settings_button_coords:
-                button_x, button_y, button_w, button_h = self.settings_button_coords
-                if button_x <= x <= button_x + button_w and button_y <= y <= button_y + button_h:
-                    self.settings_menu_open = not self.settings_menu_open
-
     def handle_slider_input(self, frame, x, y, is_click):
         """Handle slider input for settings menu."""
         menu_x, menu_y, menu_w, menu_h = 50, 150, 200, 100
@@ -590,7 +687,7 @@ class GestureController:
             cv2.moveWindow('Gesture Control', screen_width - 410, 10)
             cv2.setWindowProperty('Gesture Control', cv2.WND_PROP_TOPMOST, 1)
 
-            frame_skip = 2
+            frame_skip = 3
             frame_count = 0
             auto_brightness_message = None
             message_start_time = None
@@ -630,6 +727,9 @@ class GestureController:
                 self.control_youtube_fullscreen(left_hand) if left_hand else None
                 self.control_mouse(right_hand, frame) if right_hand else None
 
+                if self.face_mask_enabled:
+                    frame = self.apply_face_mask(frame)
+
                 if message_start_time and time.time() - message_start_time > 3:
                     auto_brightness_message = None
                     message_start_time = None
@@ -638,8 +738,9 @@ class GestureController:
                 self.show_settings_menu(frame)
                 self.display_gesture_alert(frame)
 
-                cv2.putText(frame, "Q: Quit | B: Auto-Brightness", (10, frame.shape[0] - 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                instructions = "Q: Quit | B: Auto-Brightness | M: Toggle Mask"
+                cv2.putText(frame, instructions, (10, frame.shape[0] - 20),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)  # Single line instructions
 
                 cv2.imshow('Gesture Control', frame)
                 key = cv2.waitKey(1) & 0xFF
@@ -650,9 +751,12 @@ class GestureController:
                     self.toggle_auto_brightness()
                     auto_brightness_message = f"Auto-Brightness: {'ON' if self.auto_brightness_enabled else 'OFF'}"
                     message_start_time = time.time()
+                elif key == ord('m'):
+                    self.toggle_face_mask()
 
             cap.release()
             cv2.destroyAllWindows()
+            self.running = False
         except RuntimeError as e:
             logging.error(str(e))
             print(str(e))
